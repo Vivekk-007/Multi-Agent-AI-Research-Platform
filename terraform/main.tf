@@ -10,7 +10,7 @@ terraform {
     }
   }
   backend "s3" {
-    bucket         = "research-agent-tfstate"
+    bucket         = "multi-agent-research-tfstate-926000797438"
     key            = "terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "research-agent-tf-locks"
@@ -452,7 +452,7 @@ resource "aws_db_instance" "postgres" {
   deletion_protection     = false 
   skip_final_snapshot     = false
   final_snapshot_identifier = "${var.project}-postgres-final-snapshot"
-  backup_retention_period = 7
+  backup_retention_period = 0
   backup_window           = "03:00-04:00"
   maintenance_window      = "sun:05:00-sun:06:00"
   tags                    = { Name = "${var.project}-postgres" }
