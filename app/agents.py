@@ -1,6 +1,7 @@
 import asyncio
 import httpx
 import logging
+import re
 from typing import TypedDict
 from langgraph.graph import StateGraph, END, START
 from langsmith import traceable
@@ -12,6 +13,22 @@ logger = logging.getLogger(__name__)
 
 class TensorZeroInferenceError(RuntimeError):
     """A gateway failure with a safe, actionable message for job consumers."""
+
+    def __init__(self, message: str, *, retryable: bool, retry_after: float | None = None):
+        super().__init__(message)
+        self.retryable = retryable
+        self.retry_after = retry_after
+
+
+_SENSITIVE_VALUE = re.compile(
+    r'(?i)("?(?:api[_-]?key|authorization|token|password|secret)"?\s*[:=]\s*["\']?)([^,\s"\'}]+)'
+)
+_RETRY_AFTER_SECONDS = re.compile(r"(?i)(?:try again in|retry after)\s+(\d+(?:\.\d+)?)\s*(?:s|seconds?)")
+
+
+def _safe_gateway_detail(detail: str) -> str:
+    """Keep provider diagnostics useful without putting credentials in logs."""
+    return _SENSITIVE_VALUE.sub(r"\1[REDACTED]", detail)[:2000]
 
 
 class ResearchState(TypedDict):
@@ -48,16 +65,22 @@ async def _tz_call_once(config: Config, function_name: str, message: str) -> str
             # TensorZero includes the provider failure in its response body. Log
             # it so CloudWatch shows whether this was authentication, quota, or
             # a model/provider configuration problem, without leaking it to the UI.
-            gateway_detail = response.text[:2000]
+            gateway_detail = _safe_gateway_detail(response.text)
             logger.error(
                 "TensorZero inference failed: function=%s status=%s detail=%s",
                 function_name,
                 response.status_code,
                 gateway_detail,
             )
+            retry_match = _RETRY_AFTER_SECONDS.search(response.text)
+            retry_after = float(retry_match.group(1)) + 1 if retry_match else None
+            is_rate_limited = "rate_limit" in response.text.lower() or response.status_code == 429
+            is_permanent_provider_error = "invalid_request_error" in response.text.lower()
             raise TensorZeroInferenceError(
                 f"LLM gateway failed with HTTP {response.status_code}. "
-                "Check the TensorZero CloudWatch logs and confirm GROQ_API_KEY is valid."
+                "Check the TensorZero CloudWatch logs for the provider diagnostic.",
+                retryable=is_rate_limited or not is_permanent_provider_error,
+                retry_after=retry_after,
             )
         return response.json()["content"][0]["text"]
 

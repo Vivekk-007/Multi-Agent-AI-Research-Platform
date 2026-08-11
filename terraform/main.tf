@@ -51,6 +51,11 @@ variable "api_key" {
   default     = ""
 }
 
+variable "groq_api_key" {
+  description = "Groq API key supplied to the TensorZero sidecar"
+  sensitive   = true
+}
+
 variable "app_desired_count" {
   description = "Initial number of app ECS tasks"
   default     = 1
