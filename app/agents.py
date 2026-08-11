@@ -10,6 +10,10 @@ from app.retry import with_retry
 logger = logging.getLogger(__name__)
 
 
+class TensorZeroInferenceError(RuntimeError):
+    """A gateway failure with a safe, actionable message for job consumers."""
+
+
 class ResearchState(TypedDict):
     topic: str
     session_id: str
@@ -40,7 +44,21 @@ async def _tz_call_once(config: Config, function_name: str, message: str) -> str
                 "input": {"messages": [{"role": "user", "content": message}]},
             },
         )
-        response.raise_for_status()
+        if response.is_error:
+            # TensorZero includes the provider failure in its response body. Log
+            # it so CloudWatch shows whether this was authentication, quota, or
+            # a model/provider configuration problem, without leaking it to the UI.
+            gateway_detail = response.text[:2000]
+            logger.error(
+                "TensorZero inference failed: function=%s status=%s detail=%s",
+                function_name,
+                response.status_code,
+                gateway_detail,
+            )
+            raise TensorZeroInferenceError(
+                f"LLM gateway failed with HTTP {response.status_code}. "
+                "Check the TensorZero CloudWatch logs and confirm GROQ_API_KEY is valid."
+            )
         return response.json()["content"][0]["text"]
 
 
