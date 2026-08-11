@@ -6,7 +6,7 @@ routing = ["openai_gpt4o", "groq_fallback"]
 
 [models.research_model.providers.openai_gpt4o]
 type = "openai"
-model_name = "gpt-4o"
+model_name = "gpt-oss-120b"
 
 [models.research_model.providers.groq_fallback]
 type = "groq"
